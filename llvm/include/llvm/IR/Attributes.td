@@ -276,6 +276,9 @@ def SanitizeHWAddress : EnumAttr<"sanitize_hwaddress", [FnAttr]>;
 /// MemTagSanitizer is on.
 def SanitizeMemTag : EnumAttr<"sanitize_memtag", [FnAttr]>;
 
+/// Attribute to identify global variables instrumented by AddrSanitizer.
+def AsanInstrumented : EnumAttr<"asan_instrumented", []>;
+
 /// Speculative Load Hardening is enabled.
 ///
 /// Note that this uses the default compatibility (always compatible during

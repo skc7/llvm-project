@@ -1982,6 +1982,8 @@ static Attribute::AttrKind getAttrFromCode(uint64_t Code) {
     return Attribute::NullPointerIsValid;
   case bitc::ATTR_KIND_OPTIMIZE_FOR_DEBUGGING:
     return Attribute::OptimizeForDebugging;
+  case bitc::ATTR_KIND_ASAN_INSTRUMENTED:
+    return Attribute::AsanInstrumented;
   case bitc::ATTR_KIND_OPT_FOR_FUZZING:
     return Attribute::OptForFuzzing;
   case bitc::ATTR_KIND_OPTIMIZE_FOR_SIZE:

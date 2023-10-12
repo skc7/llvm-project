@@ -1525,6 +1525,14 @@ bool LLParser::parseFnAttributeValuePairs(AttrBuilder &B,
       continue;
     }
 
+    if (Token == lltok::kw_asan_instrumented) {
+      if (parseToken(lltok::kw_asan_instrumented,
+                     "expected 'asan_instrumented'"))
+        return true;
+      B.addAttribute(Attribute::AsanInstrumented);
+      continue;
+    }
+
     SMLoc Loc = Lex.getLoc();
     if (Token == lltok::kw_builtin)
       BuiltinLoc = Loc;

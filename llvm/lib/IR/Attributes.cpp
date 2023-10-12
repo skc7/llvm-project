@@ -408,6 +408,10 @@ FPClassTest Attribute::getNoFPClass() const {
   return static_cast<FPClassTest>(pImpl->getValueAsInt());
 }
 
+bool Attribute::isAsanInstrumented() const {
+  return hasAttribute(Attribute::AsanInstrumented);
+}
+
 static const char *getModRefStr(ModRefInfo MR) {
   switch (MR) {
   case ModRefInfo::NoModRef:
@@ -561,6 +565,9 @@ std::string Attribute::getAsString(bool InAttrGrp) const {
     OS << getNoFPClass();
     return Result;
   }
+
+  if (hasAttribute(Attribute::AsanInstrumented))
+    return "asan_instrumented";
 
   // Convert target-dependent attributes to strings of the form:
   //
