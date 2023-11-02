@@ -1525,11 +1525,11 @@ bool LLParser::parseFnAttributeValuePairs(AttrBuilder &B,
       continue;
     }
 
-    if (Token == lltok::kw_asan_instrumented) {
-      if (parseToken(lltok::kw_asan_instrumented,
-                     "expected 'asan_instrumented'"))
+    if (Token == lltok::kw_sanitized_padded_global) {
+      if (parseToken(lltok::kw_sanitized_padded_global,
+                     "expected 'sanitized_padded_global'"))
         return true;
-      B.addAttribute(Attribute::AsanInstrumented);
+      B.addAttribute(Attribute::SanitizedPaddedGlobal);
       continue;
     }
 

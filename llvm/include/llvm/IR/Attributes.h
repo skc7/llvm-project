@@ -252,7 +252,7 @@ public:
   FPClassTest getNoFPClass() const;
 
   /// Return if global variable is instrumented by AddrSanitizer.
-  bool isAsanInstrumented() const;
+  bool isSanitizedPaddedGlobal() const;
 
   /// The Attribute is converted to a string of equivalent mnemonic. This
   /// is, presumably, for writing out the mnemonics for the assembly writer.
