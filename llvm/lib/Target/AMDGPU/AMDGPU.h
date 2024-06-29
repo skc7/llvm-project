@@ -263,6 +263,18 @@ private:
   bool GlobalOpt;
 };
 
+void initializeAMDGPUAsanInstrumentLDSLegacyPass(PassRegistry &);
+extern char &AMDGPUAsanInstrumentLDSLegacyPassID;
+ModulePass *createAMDGPUAsanInstrumentLDSLegacyPass(
+    const AMDGPUTargetMachine *TM = nullptr);
+
+struct AMDGPUAsanInstrumentLDSPass
+    : PassInfoMixin<AMDGPUAsanInstrumentLDSPass> {
+  const AMDGPUTargetMachine &TM;
+  AMDGPUAsanInstrumentLDSPass(const AMDGPUTargetMachine &TM_) : TM(TM_) {}
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &AM);
+};
+
 class AMDGPUCodeGenPreparePass
     : public PassInfoMixin<AMDGPUCodeGenPreparePass> {
 private:
