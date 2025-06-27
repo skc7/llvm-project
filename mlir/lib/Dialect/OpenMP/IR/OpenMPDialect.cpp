@@ -3974,6 +3974,20 @@ llvm::LogicalResult omp::TargetAllocMemOp::verify() {
   if (!mlir::dyn_cast<IntegerType>(outType))
     return emitOpError("must be a integer type");
   return mlir::success();
+
+//===----------------------------------------------------------------------===//
+// WorkdistributeOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult WorkdistributeOp::verify() {
+  Region &region = getRegion();
+  if (!region.hasOneBlock())
+    return emitOpError("region must contain exactly one block");
+
+  Operation *parentOp = (*this)->getParentOp();
+  if (!llvm::dyn_cast<TeamsOp>(parentOp))
+    return emitOpError("workdistribute must be nested under teams");
+  return success();
 }
 
 #define GET_ATTRDEF_CLASSES
