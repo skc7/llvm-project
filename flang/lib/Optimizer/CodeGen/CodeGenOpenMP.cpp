@@ -127,6 +127,13 @@ struct PrivateClauseOpConversion
   }
 };
 
+static mlir::Type convertObjectType(const fir::LLVMTypeConverter &converter,
+                                  mlir::Type firType) {
+  if (auto boxTy = mlir::dyn_cast<fir::BaseBoxType>(firType))
+    return converter.convertBoxTypeAsStruct(boxTy);
+  return converter.convertType(firType);
+}
+
 // FIR Op specific conversion for TargetAllocMemOp
 struct TargetAllocMemOpConversion
     : public OpenMPFIROpConversion<mlir::omp::TargetAllocMemOp> {
@@ -139,7 +146,7 @@ struct TargetAllocMemOpConversion
     mlir::Location loc = allocmemOp.getLoc();
     auto ity = lowerTy().indexType();
     mlir::Type dataTy = fir::unwrapRefType(heapTy);
-    mlir::Type llvmObjectTy = fir::convertObjectType(lowerTy(), dataTy);
+    mlir::Type llvmObjectTy = convertObjectType(lowerTy(), dataTy);
     if (fir::isRecordWithTypeParameters(fir::unwrapSequenceType(dataTy)))
       TODO(loc, "omp.target_allocmem codegen of derived type with length "
                 "parameters");

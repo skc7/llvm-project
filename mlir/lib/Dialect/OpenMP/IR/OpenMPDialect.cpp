@@ -3974,6 +3974,7 @@ llvm::LogicalResult omp::TargetAllocMemOp::verify() {
   if (!mlir::dyn_cast<IntegerType>(outType))
     return emitOpError("must be a integer type");
   return mlir::success();
+}
 
 //===----------------------------------------------------------------------===//
 // WorkdistributeOp

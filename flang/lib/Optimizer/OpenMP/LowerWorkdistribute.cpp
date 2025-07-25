@@ -762,37 +762,19 @@ static void moveToHost(omp::TargetOp targetOp, RewriterBase &rewriter) {
     mapping.map(arg, mapInfoOp.getVarPtr());
   }
   rewriter.setInsertionPoint(targetOp);
-  SmallVector<Operation *> opsToMove;
+  SmallVector<Operation *> opsToReplace;
+  Value device = targetOp.getDevice();
+  /*
+  if (!device) {
+    device = genI32Constant(targetOp.getLoc(), rewriter, 0);
+  }
   for (auto it = targetBlock->begin(), end = std::prev(targetBlock->end());
        it != end; ++it) {
     auto *op = &*it;
-    auto allocOp = dyn_cast<fir::AllocMemOp>(op);
-    auto freeOp = dyn_cast<fir::FreeMemOp>(op);
     fir::CallOp runtimeCall = nullptr;
     if (isRuntimeCall(op))
       runtimeCall = cast<fir::CallOp>(op);
-
-    if (allocOp || freeOp || runtimeCall) {
-      Value device = targetOp.getDevice();
-      if (!device) {
-        device = genI32Constant(it->getLoc(), rewriter, 0);
-      }
-      if (allocOp) {
-        auto tmpAllocOp = rewriter.create<fir::OmpTargetAllocMemOp>(
-            allocOp.getLoc(), allocOp.getType(), device,
-            allocOp.getInTypeAttr(), allocOp.getUniqNameAttr(),
-            allocOp.getBindcNameAttr(), allocOp.getTypeparams(),
-            allocOp.getShape());
-        auto newAllocOp = cast<fir::OmpTargetAllocMemOp>(
-            rewriter.clone(*tmpAllocOp.getOperation(), mapping));
-        mapping.map(allocOp.getResult(), newAllocOp.getResult());
-        rewriter.eraseOp(tmpAllocOp);
-      } else if (freeOp) {
-        auto tmpFreeOp = rewriter.create<fir::OmpTargetFreeMemOp>(
-            freeOp.getLoc(), device, freeOp.getHeapref());
-        rewriter.clone(*tmpFreeOp.getOperation(), mapping);
-        rewriter.eraseOp(tmpFreeOp);
-      } else if (runtimeCall) {
+      if (runtimeCall) {
         auto module = runtimeCall->getParentOfType<ModuleOp>();
         auto callee = cast<func::FuncOp>(
             module.lookupSymbol(runtimeCall.getCalleeAttr()));
@@ -824,15 +806,42 @@ static void moveToHost(omp::TargetOp targetOp, RewriterBase &rewriter) {
         Operation *newCall = rewriter.clone(*tmpCall, mapping);
         mapping.map(&*it, newCall);
         rewriter.eraseOp(tmpCall);
-      }
     } else {
       Operation *clonedOp = rewriter.clone(*op, mapping);
+      auto allocOp = dyn_cast<fir::AllocMemOp>(clonedOp);
+      auto freeOp = dyn_cast<fir::FreeMemOp>(clonedOp);
+      if (allocOp || freeOp)
+        opsToReplace.push_back(clonedOp);
       for (unsigned i = 0; i < op->getNumResults(); ++i) {
         mapping.map(op->getResult(i), clonedOp->getResult(i));
       }
     }
   }
+  for (Operation* op : opsToReplace) {
+    if (auto allocOp = dyn_cast<fir::AllocMemOp>(op)) {
+      rewriter.setInsertionPoint(allocOp);
+      auto ompAllocmemOp = rewriter.create<omp::TargetAllocMemOp>(
+          allocOp.getLoc(), rewriter.getI64Type(), device,
+          allocOp.getInTypeAttr(), allocOp.getUniqNameAttr(),
+          allocOp.getBindcNameAttr(), allocOp.getTypeparams(),
+          allocOp.getShape());
+      auto firConvertOp = rewriter.create<fir::ConvertOp>(allocOp.getLoc(), 
+                            allocOp.getResult().getType(), ompAllocmemOp.getResult());
+      rewriter.replaceOp(allocOp, firConvertOp.getResult());
+    }
+    else if (auto freeOp = dyn_cast<fir::FreeMemOp>(op)) {
+      rewriter.setInsertionPoint(freeOp);
+      auto firConvertOp = rewriter.create<fir::ConvertOp>(
+        freeOp.getLoc(),
+        rewriter.getI64Type(),
+        freeOp.getHeapref());
+      rewriter.create<omp::TargetFreeMemOp>(
+          freeOp.getLoc(), device, firConvertOp.getResult());
+      rewriter.eraseOp(freeOp);
+    }
+  }
   rewriter.eraseOp(targetOp);
+  */
 }
 
 void fissionTarget(omp::TargetOp targetOp, RewriterBase &rewriter) {
