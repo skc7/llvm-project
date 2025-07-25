@@ -764,7 +764,6 @@ static void moveToHost(omp::TargetOp targetOp, RewriterBase &rewriter) {
   rewriter.setInsertionPoint(targetOp);
   SmallVector<Operation *> opsToReplace;
   Value device = targetOp.getDevice();
-  /*
   if (!device) {
     device = genI32Constant(targetOp.getLoc(), rewriter, 0);
   }
@@ -841,7 +840,6 @@ static void moveToHost(omp::TargetOp targetOp, RewriterBase &rewriter) {
     }
   }
   rewriter.eraseOp(targetOp);
-  */
 }
 
 void fissionTarget(omp::TargetOp targetOp, RewriterBase &rewriter) {
