@@ -690,6 +690,74 @@ static void threadPrivatizeVars(lower::AbstractConverter &converter,
   }
 }
 
+static void groupprivatizeVars(lower::AbstractConverter &converter,
+                               lower::pft::Evaluation &eval) {
+  fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
+  mlir::Location currentLocation = converter.getCurrentLocation();
+  mlir::OpBuilder::InsertionGuard guard(firOpBuilder);
+  firOpBuilder.setInsertionPointToStart(firOpBuilder.getAllocaBlock());
+
+  auto module = converter.getModuleOp();
+
+  // Create a groupprivate operation for the symbol.
+  // Groupprivate variables are always globals (module scope or SAVE attribute).
+  // We use fir.address_of to get the global address since groupprivate symbols
+  // are not implicitly mapped (they create their own LDS storage).
+  // The LLVM IR translation gets type information from the global variable.
+  auto genGroupprivateOp = [&](const semantics::Symbol &sym) -> mlir::Value {
+    std::string globalName = converter.mangleName(sym);
+    fir::GlobalOp global = module.lookupSymbol<fir::GlobalOp>(globalName);
+    if (!global) {
+      // Global not found - shouldn't happen for properly lowered groupprivate
+      return mlir::Value();
+    }
+
+    // Generate fir.address_of to get the global address
+    mlir::Value symAddr = fir::AddrOfOp::create(
+        firOpBuilder, currentLocation, global.resultType(), global.getSymbol());
+
+    // TODO: Extract device_type from the symbol when available
+    mlir::omp::DeclareTargetDeviceType deviceTypeEnum =
+        mlir::omp::DeclareTargetDeviceType::any;
+    mlir::omp::DeclareTargetDeviceTypeAttr deviceTypeAttr =
+        mlir::omp::DeclareTargetDeviceTypeAttr::get(firOpBuilder.getContext(),
+                                                    deviceTypeEnum);
+
+    return mlir::omp::GroupprivateOp::create(firOpBuilder, currentLocation,
+                                             symAddr.getType(), symAddr,
+                                             deviceTypeAttr);
+  };
+
+  llvm::SetVector<const semantics::Symbol *> groupprivateSyms;
+  converter.collectSymbolSet(eval, groupprivateSyms,
+                             semantics::Symbol::Flag::OmpGroupPrivate,
+                             /*collectSymbols=*/true,
+                             /*collectHostAssociatedSymbols=*/true);
+  std::set<semantics::SourceName> groupprivateSymNames;
+
+  for (std::size_t i = 0; i < groupprivateSyms.size(); i++) {
+    const semantics::Symbol *sym = groupprivateSyms[i];
+    // The variable may be used more than once, and each reference has one
+    // symbol with the same name. Only do once for references of one variable.
+    if (groupprivateSymNames.find(sym->name()) != groupprivateSymNames.end())
+      continue;
+    groupprivateSymNames.insert(sym->name());
+
+    // TODO: Handle common block members for groupprivate
+
+    mlir::Value symGroupprivateValue = genGroupprivateOp(*sym);
+    if (!symGroupprivateValue) {
+      // Global not found, skip
+      continue;
+    }
+
+    fir::ExtendedValue sexv = converter.getSymbolExtendedValue(*sym);
+    fir::ExtendedValue symGroupprivateExv =
+        getExtendedValue(sexv, symGroupprivateValue);
+    converter.bindSymbol(*sym, symGroupprivateExv);
+  }
+}
+
 static mlir::Operation *setLoopVar(lower::AbstractConverter &converter,
                                    mlir::Location loc, mlir::Value indexVal,
                                    const semantics::Symbol *sym) {
@@ -1221,6 +1289,10 @@ static void createBodyOfOp(mlir::Operation &op, const OpWithBodyGenInfo &info,
       ClauseProcessor(info.converter, info.semaCtx, *info.clauses)
           .processCopyin();
     }
+  }
+
+  if (info.dir == llvm::omp::Directive::OMPD_teams) {
+    groupprivatizeVars(info.converter, info.eval);
   }
 
   if (!info.genSkeletonOnly) {
@@ -2661,6 +2733,12 @@ genTargetOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
     if (semantics::IsNamedConstant(sym))
       return;
 
+    // Skip groupprivate symbols - they don't need to be mapped because
+    // groupprivate creates its own LDS storage. Type information is
+    // obtained from the global variable in LLVM IR translation.
+    if (sym.GetUltimate().test(semantics::Symbol::Flag::OmpGroupPrivate))
+      return;
+
     if (!isDuplicateMappedSymbol(sym, dsp.getAllSymbolsToPrivatize(),
                                  hasDeviceAddrSyms, mapSyms, isDevicePtrSyms)) {
       if (const auto *details =
@@ -3931,7 +4009,10 @@ static void genOMP(lower::AbstractConverter &converter, lower::SymMap &symTable,
                    semantics::SemanticsContext &semaCtx,
                    lower::pft::Evaluation &eval,
                    const parser::OpenMPGroupprivate &directive) {
-  TODO(converter.getCurrentLocation(), "GROUPPRIVATE");
+  // The groupprivate directive is lowered when the variable is referenced
+  // inside target/teams regions.
+  // The directive itself only marks symbols with the OmpGroupPrivate flag,
+  // which is done in semantics.
 }
 
 static void genOMP(lower::AbstractConverter &converter, lower::SymMap &symTable,
@@ -4335,6 +4416,9 @@ void Fortran::lower::genOpenMPSymbolProperties(
 
   if (sym.test(semantics::Symbol::Flag::OmpDeclareTarget))
     lower::genDeclareTargetIntGlobal(converter, var);
+
+  if (sym.test(semantics::Symbol::Flag::OmpGroupPrivate))
+    lower::genGroupprivateOp(converter, var);
 }
 
 void Fortran::lower::genThreadprivateOp(lower::AbstractConverter &converter,
@@ -4401,6 +4485,38 @@ void Fortran::lower::genThreadprivateOp(lower::AbstractConverter &converter,
   fir::ExtendedValue symThreadprivateExv =
       getExtendedValue(sexv, symThreadprivateValue);
   converter.bindSymbol(sym, symThreadprivateExv);
+}
+
+void Fortran::lower::genGroupprivateOp(lower::AbstractConverter &converter,
+                                       const lower::pft::Variable &var) {
+  fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
+  mlir::Location currentLocation = converter.getCurrentLocation();
+
+  const semantics::Symbol &sym = var.getSymbol();
+
+  // Groupprivate doesn't support common blocks.
+  if (semantics::FindCommonBlockContaining(sym.GetUltimate())) {
+    TODO(currentLocation, "groupprivate for common block variables");
+  }
+
+  fir::GlobalOp global;
+  auto module = converter.getModuleOp();
+  std::string globalName = converter.mangleName(sym);
+
+  // Handle non-global variables - create a GlobalOp for them.
+  if (!var.isGlobal()) {
+    if (module.lookupSymbol<fir::GlobalOp>(globalName))
+      global = module.lookupSymbol<fir::GlobalOp>(globalName);
+    else
+      global = globalInitialization(converter, firOpBuilder, sym, var,
+                                    currentLocation);
+  } else {
+    global = module.lookupSymbol<fir::GlobalOp>(globalName);
+  }
+
+  // The actual omp.groupprivate operation is created by groupprivatizeVars
+  // when entering a teams region, similar to how threadPrivatizeVars handles
+  // threadprivate variables in parallel regions.
 }
 
 // This function replicates threadprivate's behaviour of generating
